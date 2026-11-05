@@ -1,0 +1,59 @@
+name: Hockey-Kalender aktualisieren
+
+on:
+  schedule:
+    - cron: "17 */2 * * *"   # alle 2 Stunden
+  workflow_dispatch:          # Knopf "Run workflow" zum Sofort-Starten
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  kalender:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Abhängigkeiten installieren
+        run: pip install requests beautifulsoup4
+
+      - name: Kalender bauen
+        env:
+          TS_USER: ${{ secrets.TS_USER }}
+          TS_PASS: ${{ secrets.TS_PASS }}
+          FEED_NAME: ${{ secrets.FEED_NAME }}
+        run: |
+          if [ -z "$FEED_NAME" ]; then echo "Secret FEED_NAME fehlt"; exit 1; fi
+          mkdir -p site
+          python zusagen_kalender.py "site/${FEED_NAME}.ics"
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - uses: actions/deploy-pages@v4
+
+      # GitHub schaltet Zeitpläne nach 60 Tagen ohne Änderung im Repo ab.
+      # Dieser Schritt macht alle ~45 Tage einen leeren Commit, damit es weiterläuft.
+      - name: Wachhalten
+        run: |
+          last=$(git log -1 --format=%ct)
+          now=$(date +%s)
+          if [ $(( (now - last) / 86400 )) -ge 45 ]; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git commit --allow-empty -m "Wachhalten"
+            git push
+          fi
